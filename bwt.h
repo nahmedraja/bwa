@@ -31,7 +31,7 @@
 #include <stdint.h>
 
 // requirement: (OCC_INTERVAL%16 == 0)
-#define OCC_INTERVAL 0x80
+#define OCC_INTERVAL 0x40
 
 #ifndef BWA_UBYTE
 #define BWA_UBYTE

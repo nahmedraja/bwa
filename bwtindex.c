@@ -45,8 +45,10 @@ int bwa_index(int argc, char *argv[])
 	int c, algo_type = 0, is_color = 0;
 	clock_t t;
 	int64_t l_pac;
+	int array_to_build = 1;
+	int r = 7;
 
-	while ((c = getopt(argc, argv, "ca:p:")) >= 0) {
+	while ((c = getopt(argc, argv, "cab:p:r:")) >= 0) {
 		switch (c) {
 		case 'a': // if -a is not set, algo_type will be determined later
 			if (strcmp(optarg, "div") == 0) algo_type = 1;
@@ -56,16 +58,24 @@ int bwa_index(int argc, char *argv[])
 			break;
 		case 'p': prefix = strdup(optarg); break;
 		case 'c': is_color = 1; break;
+		case 'r': r = atoi(optarg); break;
+		case 'b': 
+			if (strcmp(optarg, "bwt") == 0) array_to_build = 0;
+			else if (strcmp(optarg, "sa") == 0) array_to_build = 1;
+			else err_fatal(__func__, "unknown array to build: '%s'.", optarg);
+			break;
 		default: return 1;
 		}
 	}
 
 	if (optind + 1 > argc) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   bwa index [-a bwtsw|div|is] [-c] <in.fasta>\n\n");
+		fprintf(stderr, "Usage:   bwa index [-a bwtsw|div|is] [-c] [-b <bwt|sa>] [-r <SP compression ratio>] <in.fasta>\n\n");
 		fprintf(stderr, "Options: -a STR    BWT construction algorithm: bwtsw or is [is]\n");
 		fprintf(stderr, "         -p STR    prefix of the index [same as fasta name]\n");
+		fprintf(stderr, "         -b STR    array to build [suffix position array]\n");
 		fprintf(stderr, "         -c        build color-space index\n\n");
+		fprintf(stderr, "         -r        compressio ratio for suffix position array  [%d]\n\n", r);
 		fprintf(stderr,	"Warning: `-a bwtsw' does not work for short genomes, while `-a is' and\n");
 		fprintf(stderr, "         `-a div' do not work not for long genomes. Please choose `-a'\n");
 		fprintf(stderr, "         according to the length of the genome.\n\n");
@@ -97,6 +107,7 @@ int bwa_index(int argc, char *argv[])
 			t = clock();
 			fprintf(stderr, "[bwa_index] Convert nucleotide PAC to color PAC... ");
 			bwa_pac2cspac(3, tmp_argv);
+
 			fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 		}
 	}
@@ -105,14 +116,14 @@ int bwa_index(int argc, char *argv[])
 		return 1;
 	}
 	if (algo_type == 0) algo_type = l_pac > 50000000? 2 : 3; // set the algorithm for generating BWT
-	{
-		strcpy(str, prefix); strcat(str, ".pac");
-		strcpy(str2, prefix); strcat(str2, ".rpac");
-		t = clock();
-		fprintf(stderr, "[bwa_index] Reverse the packed sequence... ");
-		bwa_pac_rev_core(str, str2);
-		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-	}
+// 	{
+// 		strcpy(str, prefix); strcat(str, ".pac");
+// 		strcpy(str2, prefix); strcat(str2, ".rpac");
+// 		t = clock();
+// 		fprintf(stderr, "[bwa_index] Reverse the packed sequence... ");
+// 		bwa_pac_rev_core(str, str2);
+// 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+// 	}
 	{
 		strcpy(str, prefix); strcat(str, ".pac");
 		strcpy(str2, prefix); strcat(str2, ".bwt");
@@ -127,23 +138,24 @@ int bwa_index(int argc, char *argv[])
 		}
 		fprintf(stderr, "[bwa_index] %.2f seconds elapse.\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 	}
-	{
-		strcpy(str, prefix); strcat(str, ".rpac");
-		strcpy(str2, prefix); strcat(str2, ".rbwt");
-		t = clock();
-		fprintf(stderr, "[bwa_index] Construct BWT for the reverse packed sequence...\n");
-		if (algo_type == 2) bwt_bwtgen(str, str2);
-		else if (algo_type == 1 || algo_type == 3) {
-			bwt_t *bwt;
-			bwt = bwt_pac2bwt(str, algo_type == 3);
-			bwt_dump_bwt(str2, bwt);
-			bwt_destroy(bwt);
-		}
-		fprintf(stderr, "[bwa_index] %.2f seconds elapse.\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-	}
+// 	{
+// 		strcpy(str, prefix); strcat(str, ".rpac");
+// 		strcpy(str2, prefix); strcat(str2, ".rbwt");
+// 		t = clock();
+// 		fprintf(stderr, "[bwa_index] Construct BWT for the reverse packed sequence...\n");
+// 		if (algo_type == 2) bwt_bwtgen(str, str2);
+// 		else if (algo_type == 1 || algo_type == 3) {
+// 			bwt_t *bwt;
+// 			bwt = bwt_pac2bwt(str, algo_type == 3);
+// 			bwt_dump_bwt(str2, bwt);
+// 			bwt_destroy(bwt);
+// 		}
+// 		fprintf(stderr, "[bwa_index] %.2f seconds elapse.\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+// 	}
 	{
 		bwt_t *bwt;
 		strcpy(str, prefix); strcat(str, ".bwt");
+		//strcpy(str, argv[optind]); strcat(str, ".bwt");
 		t = clock();
 		fprintf(stderr, "[bwa_index] Update BWT... ");
 		bwt = bwt_restore_bwt(str);
@@ -152,41 +164,59 @@ int bwa_index(int argc, char *argv[])
 		bwt_destroy(bwt);
 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 	}
-	{
-		bwt_t *bwt;
-		strcpy(str, prefix); strcat(str, ".rbwt");
-		t = clock();
-		fprintf(stderr, "[bwa_index] Update reverse BWT... ");
-		bwt = bwt_restore_bwt(str);
-		bwt_bwtupdate_core(bwt);
-		bwt_dump_bwt(str, bwt);
-		bwt_destroy(bwt);
-		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-	}
-	{
+// 	{
+// 	      bwt_t *bwt;
+// 	      strcpy(str, prefix); strcat(str, ".bwt");
+// 	      strcpy(str2, prefix); strcat(str2, ".occ");
+// 	      //strcpy(str, argv[optind]); strcat(str, ".bwt");
+// 	      t = clock();
+// 	      fprintf(stderr, "[bwa_index] Build occurrence table...\n");
+// 	      bwt = bwt_restore_bwt(str);
+// 	      bwt_build_occ(bwt);
+// 	      fprintf(stderr, "[bwa_index] Write occurrence table to file...\n");
+// 	      bwt_dump_occ(str2, bwt);
+// 	      fprintf(stderr, "[bwa_index] Done\n");
+// 	      bwt_destroy(bwt);
+// 	      fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+// 	   }
+// 	{
+// 		bwt_t *bwt;
+// 		strcpy(str, prefix); strcat(str, ".rbwt");
+// 		t = clock();
+// 		fprintf(stderr, "[bwa_index] Update reverse BWT... ");
+// 		bwt = bwt_restore_bwt(str);
+// 		bwt_bwtupdate_core(bwt);
+// 		bwt_dump_bwt(str, bwt);
+// 		bwt_destroy(bwt);
+// 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+// 	}
+	  if(array_to_build == 1){
 		bwt_t *bwt;
 		strcpy(str, prefix); strcat(str, ".bwt");
+		//strcpy(str, argv[optind]); strcat(str, ".bwt");
 		strcpy(str3, prefix); strcat(str3, ".sa");
 		t = clock();
-		fprintf(stderr, "[bwa_index] Construct SA from BWT and Occ... ");
+		fprintf(stderr, "[bwa_index] Construct suffix postion array from BWT and Occ... ");
 		bwt = bwt_restore_bwt(str);
-		bwt_cal_sa(bwt, 32);
+		//bwt_cal_sa(bwt, 32);
+		bwt_cal_sa(bwt, r);
 		bwt_dump_sa(str3, bwt);
 		bwt_destroy(bwt);
 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-	}
-	{
-		bwt_t *bwt;
-		strcpy(str, prefix); strcat(str, ".rbwt");
-		strcpy(str3, prefix); strcat(str3, ".rsa");
-		t = clock();
-		fprintf(stderr, "[bwa_index] Construct SA from reverse BWT and Occ... ");
-		bwt = bwt_restore_bwt(str);
-		bwt_cal_sa(bwt, 32);
-		bwt_dump_sa(str3, bwt);
-		bwt_destroy(bwt);
-		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-	}
+	  }
+// 	{
+// 		bwt_t *bwt;
+// 		strcpy(str, prefix); strcat(str, ".rbwt");
+// 		strcpy(str3, prefix); strcat(str3, ".rsa");
+// 		t = clock();
+// 		fprintf(stderr, "[bwa_index] Construct SA from reverse BWT and Occ... ");
+// 		bwt = bwt_restore_bwt(str);
+// 		bwt_cal_sa(bwt, 32);
+// 		//bwt_cal_sa(bwt, 16);
+// 		bwt_dump_sa(str3, bwt);
+// 		bwt_destroy(bwt);
+// 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+// 	}
 	free(str3); free(str2); free(str); free(prefix);
 	return 0;
 }
